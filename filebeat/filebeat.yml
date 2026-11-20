@@ -1,0 +1,19 @@
+filebeat.modules:
+  - module: nginx
+    access:
+      enabled: true
+      var.paths: ["/var/log/nginx/file_access.log*"]
+    error:
+      enabled: true
+      var.paths: ["/var/log/nginx/file_error.log*"]
+
+output.elasticsearch:
+  hosts: ["http://elasticsearch:9200"]
+
+setup.kibana:
+  host: "http://kibana:5601"
+
+# Автоматическая загрузка ingest-пайплайнов, шаблонов и дашбордов для Nginx
+setup.dashboards.enabled: true
+
+#sudo chown root:root filebeat/filebeat.yml && sudo chmod 644 filebeat/filebeat.yml

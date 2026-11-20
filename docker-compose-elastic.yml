@@ -1,0 +1,13 @@
+version: '3.9'
+
+services:
+  elasticsearch:
+    image: elasticsearch:8.12.2
+    container_name: elasticsearch
+    environment:
+      - cluster.name=my_cluster
+      - xpack.security.enabled=false
+      - discovery.type=single-node
+    ports:
+      - 9200:9200
+  
