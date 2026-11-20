@@ -1,0 +1,322 @@
+__Задание 1__. Elasticsearch
+
+Установите и запустите Elasticsearch, после чего поменяйте параметр cluster_name на случайный.
+
+Приведите скриншот команды 'curl -X GET 'localhost:9200/_cluster/health?pretty', сделанной на сервере с установленным Elasticsearch. Где будет виден нестандартный cluster_name.
+
+__Задание 2__. Kibana
+
+Установите и запустите Kibana.
+
+Приведите скриншот интерфейса Kibana на странице http://<ip вашего сервера>:5601/app/dev_tools#/console, где будет выполнен запрос GET /_cluster/health?pretty.
+
+__Задание 3__. Logstash
+
+Установите и запустите Logstash и Nginx. С помощью Logstash отправьте access-лог Nginx в Elasticsearch.
+
+Приведите скриншот интерфейса Kibana, на котором видны логи Nginx.
+
+__Задание 4__. Filebeat.
+
+Установите и запустите Filebeat. Переключите поставку логов Nginx с Logstash на Filebeat.
+
+Приведите скриншот интерфейса Kibana, на котором видны логи Nginx, которые были отправлены через Filebeat.
+
+__Задание 5*__. Доставка данных
+
+Настройте поставку лога в Elasticsearch через Logstash и Filebeat любого другого сервиса , но не Nginx. Для этого лог должен писаться на файловую систему, Logstash должен корректно его распарсить и разложить на поля.
+
+Приведите скриншот интерфейса Kibana, на котором будет виден этот лог и напишите лог какого приложения отправляется.
+
+__Задание 1__
+
+
+![alt_text](images/image1.png "image_tooltip")
+
+
+
+```
+docker-compose-elastic.yml
+version: '3.9'
+
+services:
+  elasticsearch:
+    image: elasticsearch:8.12.2
+    container_name: elasticsearch
+    environment:
+      - cluster.name=my_cluster
+      - xpack.security.enabled=false
+      - discovery.type=single-node
+    ports:
+      - 9200:9200
+
+```
+
+
+
+![alt_text](images/image2.png "image_tooltip")
+
+
+__Задание 2__
+
+
+```
+version: '3.9'
+
+services:
+  elasticsearch:
+    image: elasticsearch:8.12.2
+    container_name: elasticsearch
+    environment:
+      - cluster.name=my_cluster
+      - xpack.security.enabled=false
+      - discovery.type=single-node
+    ports:
+      - 9200:9200
+  kibana:
+    image: kibana:8.12.2
+    ports:
+      - "5601:5601"
+    depends_on:
+      - elasticsearch
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+
+```
+
+
+
+![alt_text](images/image3.png "image_tooltip")
+
+
+__Задание 3__
+
+
+![alt_text](images/image4.png "image_tooltip")
+
+
+
+```
+docker-compose-elastic_kibana.yml
+version: '3.9'
+
+services:
+
+  nginx:
+    image: nginx:alpine
+    container_name: nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./html:/usr/share/nginx/html:ro
+      - ./conf.d:/etc/nginx/conf.d:ro
+      - ./certs:/etc/nginx/certs:ro
+    depends_on:
+      - logstash
+ 
+  elasticsearch:
+    image: elasticsearch:8.12.2
+    container_name: elasticsearch
+    environment:
+      - cluster.name=my_cluster
+      - xpack.security.enabled=false
+      - discovery.type=single-node
+    ports:
+      - 9200:9200
+   
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:9200 >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  kibana:
+    image: kibana:8.12.2
+    ports:
+      - "5601:5601"
+    depends_on:
+      - elasticsearch
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+   
+  logstash:
+    image: logstash:8.12.2
+    container_name: logstash
+    environment:
+      ES_HOST: "elasticsearch:9200"
+    ports:
+      - "5044:5044/udp"
+    volumes:
+      - ./configs/logstash/config.yml:/usr/share/logstash/config/logstash.yml
+      - ./configs/logstash/pipelines.yml:/usr/share/logstash/config/pipelines.yml
+      - ./configs/logstash/pipelines:/usr/share/logstash/config/pipelines
+    depends_on:
+      - elasticsearch
+
+gen_service_logs.conf
+input {
+    udp {
+        port => 5140
+        type => "nginx"
+    }
+}
+filter {
+    grok {
+        match => { "message" => "%{SYSLOGTIMESTAMP:syslog_timestamp} %{DATA:syslog_program}: %{GREEDYDATA:json_payload}" }
+    }
+    json {
+        source => "json_payload"
+        remove_field => ["message", "json_payload"]
+  }
+}
+output {
+    stdout {}
+    elasticsearch {
+        hosts => [ "${ES_HOST}" ]
+        index => "nginx-logs%-%{+YYYY.MM.dd}"
+    }
+}
+
+default.conf #Для nginx
+log_format json_logs escape=json '{'
+    '"time":"$time_iso8601",'
+    '"remote_addr":"$remote_addr",'
+    '"method":"$request_method",'
+    '"uri":"$request_uri",'
+    '"status":$status,'
+    '"body_bytes_sent":$body_bytes_sent,'
+    '"request_time":$request_time,'
+    '"user_agent":"$http_user_agent"'
+'}';
+
+server {
+    listen 80;
+    server_name localhost;
+
+    # Отправка логов напрямую в контейнер logstash на порт 5140
+    access_log syslog:server=logstash:5140,facility=local7,tag=nginx,severity=info json_logs;
+    error_log syslog:server=logstash:5140,facility=local7,tag=nginx_err,severity=error;
+
+    location / {
+        root /usr/share/nginx/html;
+        index index.html;
+    }
+}
+
+```
+
+
+
+![alt_text](images/image5.png "image_tooltip")
+
+
+
+![alt_text](images/image6.png "image_tooltip")
+
+
+
+![alt_text](images/image7.png "image_tooltip")
+
+
+__Задание 4__
+
+
+![alt_text](images/image8.png "image_tooltip")
+
+
+
+```
+default.conf
+log_format json_logs escape=json '{'
+    '"time":"$time_iso8601",'
+    '"remote_addr":"$remote_addr",'
+    '"method":"$request_method",'
+    '"uri":"$request_uri",'
+    '"status":$status,'
+    '"body_bytes_sent":$body_bytes_sent,'
+    '"request_time":$request_time,'
+    '"user_agent":"$http_user_agent"'
+'}';
+
+server {
+    listen 80;
+    server_name localhost;
+
+    # Пишем в реальные файлы в /var/log/nginx/ (а не в симлинки stdout/stderr)
+    access_log /var/log/nginx/file_access.log combined;
+    error_log  /var/log/nginx/file_error.log warn;
+
+    location / {
+        root /usr/share/nginx/html;
+        index index.html;
+    }
+}
+
+```
+
+
+curl http://localhost
+
+curl http://localhost/not-found
+
+
+![alt_text](images/image9.png "image_tooltip")
+
+
+
+![alt_text](images/image10.png "image_tooltip")
+
+
+
+![alt_text](images/image11.png "image_tooltip")
+
+
+__Задание 5__
+
+python
+
+
+```
+import random
+import datetime
+import json
+import os
+import time
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+def log_generator():
+    while True:
+        log = {
+            "level": random.choice(
+                (
+                    "info",
+                    "error",
+                    "warning",
+                    "debug",
+                )
+            ),
+            "msg": random.choice(
+                ("get_data", "update_data", "set_data",)
+            ),
+            "asctime": datetime.datetime.utcnow().isoformat(
+                timespec="milliseconds", sep=" "
+            ),
+        }
+
+        with open(os.path.json(BASE_DIR, "log_gen.log"), "a") as f:
+            f.write(json.dumps(log) + "\n")
+       
+        time.sleep(5)
+
+if __name__ == "__main__":
+    log_generator()
+
+```
+
+
+
+![alt_text](images/image12.png "image_tooltip")
+
